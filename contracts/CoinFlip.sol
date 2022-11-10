@@ -1,7 +1,6 @@
+
 //SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.17;
-
-pragma solidity ^0.8.0;
 
 /**
  * @dev Provides information about the current execution context, including the
@@ -404,6 +403,7 @@ contract CoinFlip is Ownable{
         address player1;
         address player2;
         address winner;
+        uint gameCount;
         uint betAmount;
         bool coinSide;
     }
@@ -422,18 +422,25 @@ contract CoinFlip is Ownable{
 
     uint256 public expiration = 2**256-1;
 
+    GameStatics[] public gameInfos;
+
     event CreatedFlipGame(address player1, uint gameCount, uint amount, bool coinside);
     event CancelFlipGame(address player1, uint gameCount, uint amount);
-    event WinnerAnnounced(address winner, uint gameCount, uint amount);
+    event WinnerAnnounced(address winner, address loser, uint gameCount, uint amount);
 
     constructor(IERC20 _token){
         token = _token;
     }
 
+    function getAllGames() public view returns(GameStatics[] memory){
+        return gameInfos;
+    }
+
     function createFlipGame(uint _betAmount, bool _coinSide) public {
         require(token.transferFrom(msg.sender, address(this), _betAmount), "Token Trasfer Failed");
-        gameStatics[gameCount] = GameStatics(msg.sender, address(0), address(0), _betAmount, _coinSide);
+        gameStatics[gameCount] = GameStatics(msg.sender, address(0), address(0), gameCount, _betAmount, _coinSide);
         emit CreatedFlipGame(msg.sender, gameCount, _betAmount, _coinSide);
+        gameInfos.push(GameStatics(msg.sender, address(0), address(0), gameCount, _betAmount, _coinSide));
         gameCount++;
     }
 
@@ -462,13 +469,24 @@ contract CoinFlip is Ownable{
             require(token.transfer(_gameStatics.player1, amountAfterFee), "Token Trasfer Failed");
             require(token.transfer(owner(), fee), "Token Trasfer Failed");
             gameStatics[_gameCount].winner = player1;
+            emit WinnerAnnounced(gameStatics[_gameCount].winner, player2, _gameCount, amountAfterFee);
         }else {
             require(token.transfer(_gameStatics.player2, amountAfterFee), "Token Trasfer Failed");
             require(token.transfer(owner(), fee), "Token Trasfer Failed");
             gameStatics[_gameCount].winner = player2;
+            emit WinnerAnnounced(gameStatics[_gameCount].winner, player1,  _gameCount, amountAfterFee);
+        }
+
+        for (uint256 i = 0; i < gameInfos.length; i++) {
+            if(gameInfos[i].gameCount == _gameCount) {
+                for(uint256 j = i; j < gameInfos.length - 1; j++) {
+                    gameInfos[j] = gameInfos[j + 1];
+                }
+                gameInfos.pop();
+            }
         }
         
-        emit WinnerAnnounced(gameStatics[_gameCount].winner, _gameCount, amountAfterFee);
+        
     }
 
     function random() internal view returns (bool) {
