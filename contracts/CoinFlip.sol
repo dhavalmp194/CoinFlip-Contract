@@ -410,30 +410,44 @@ contract CoinFlip is Ownable{
 
     IERC20 public token;
     uint public gameCount;
+    uint256 public feePercentage = 1000;
     mapping(uint => GameStatics) public gameStatics;
     
-    address public player1;
-    bytes32 public player1Commitment;
-
-    uint256 public betAmount;
-
-    address public player2;
-    bool public player2Choice;
+    address public feeReceiver1;
+    address public feeReceiver2;
+    address public lpReceiver;
 
     uint256 public expiration = 2**256-1;
 
     GameStatics[] public gameInfos;
+    GameStatics[] public pastGames;
 
     event CreatedFlipGame(address player1, uint gameCount, uint amount, bool coinside);
     event CancelFlipGame(address player1, uint gameCount, uint amount);
     event WinnerAnnounced(address winner, address loser, uint gameCount, uint amount);
 
-    constructor(IERC20 _token){
+    constructor(IERC20 _token, address _feeReceiver1, address _feeReceiver2, address _lpReceiver){
         token = _token;
+        feeReceiver1 = _feeReceiver1;
+        feeReceiver2 = _feeReceiver2;
+        lpReceiver = _lpReceiver;
     }
 
     function getAllGames() public view returns(GameStatics[] memory){
         return gameInfos;
+    }
+
+     function getAllPastGames() public view returns(GameStatics[] memory){
+        return pastGames;
+    }
+
+    function setFeeReceiver(address _userAddress1, address _userAddress2) public onlyOwner{
+        feeReceiver1 = _userAddress1;
+        feeReceiver2 = _userAddress2;
+    }
+
+    function setFeePercentage(uint _feePercentage) public onlyOwner{
+        feePercentage = _feePercentage;
     }
 
     function createFlipGame(uint _betAmount, bool _coinSide) public {
@@ -463,19 +477,29 @@ contract CoinFlip is Ownable{
         bool winningSide = random();
 
         uint totalWinning = _gameStatics.betAmount.mul(2);
-        uint fee = totalWinning.mul(1000).div(1e4);
+        uint fee = totalWinning.mul(feePercentage).div(1e4);
         uint amountAfterFee = totalWinning.sub(fee);
         if(winningSide == _gameStatics.coinSide){
+            uint devFee = fee.div(5);
             require(token.transfer(_gameStatics.player1, amountAfterFee), "Token Trasfer Failed");
-            require(token.transfer(owner(), fee), "Token Trasfer Failed");
-            gameStatics[_gameCount].winner = player1;
-            emit WinnerAnnounced(gameStatics[_gameCount].winner, player2, _gameCount, amountAfterFee);
+            require(token.transfer(owner(), devFee), "Token Trasfer Failed");
+            require(token.transfer(feeReceiver1, devFee), "Token Trasfer Failed");
+            require(token.transfer(feeReceiver2, devFee), "Token Trasfer Failed");
+            require(token.transfer(lpReceiver, devFee.mul(2)), "Token Trasfer Failed");
+            gameStatics[_gameCount].winner = _gameStatics.player1;
+            emit WinnerAnnounced(_gameStatics.player1, msg.sender, _gameCount, amountAfterFee);
         }else {
-            require(token.transfer(_gameStatics.player2, amountAfterFee), "Token Trasfer Failed");
-            require(token.transfer(owner(), fee), "Token Trasfer Failed");
-            gameStatics[_gameCount].winner = player2;
-            emit WinnerAnnounced(gameStatics[_gameCount].winner, player1,  _gameCount, amountAfterFee);
+            uint devFee = fee.div(5);
+            require(token.transfer(msg.sender, amountAfterFee), "Token Trasfer Failed");
+            require(token.transfer(owner(), devFee), "Token Trasfer Failed");
+            require(token.transfer(feeReceiver1, devFee), "Token Trasfer Failed");
+            require(token.transfer(feeReceiver2, devFee), "Token Trasfer Failed");
+            require(token.transfer(lpReceiver, devFee.mul(2)), "Token Trasfer Failed");
+            gameStatics[_gameCount].winner = gameStatics[_gameCount].player2;
+            emit WinnerAnnounced(msg.sender, _gameStatics.player1,  _gameCount, amountAfterFee);
         }
+
+        pastGames.push(GameStatics(_gameStatics.player1, gameStatics[_gameCount].player2, gameStatics[_gameCount].winner, _gameCount, _gameStatics.betAmount, winningSide));
 
         for (uint256 i = 0; i < gameInfos.length; i++) {
             if(gameInfos[i].gameCount == _gameCount) {
@@ -487,6 +511,10 @@ contract CoinFlip is Ownable{
         }
         
         
+    }
+
+    function transferAnyToken(IERC20 _token, uint _amount) external onlyOwner{
+        _token.transfer(msg.sender, _amount);
     }
 
     function random() internal view returns (bool) {
